@@ -1,16 +1,18 @@
-
-
-
 // STM103 version Feb 2017
+// This code demonstrates Rx and Tx using SPI 1
+// Struggled long time with MISO data value not arriving in receive buffer.
+// Turns out you must use HSE clock (i.e. XTAL). If you use HSI, MISO signal is never read. Silicon bug.
+// Liam Goudge Mar 2017
 
 #include "../Foundation/STM32F103.h"
+
 
 void wait (void) {
 	int i=0;
 	for (i=0;i<500;i++);
 }
 
-void flash (void)
+void flash (void) // Flash LED on MDFLY STM32F103 board
   {
 	int i=0;
 
@@ -21,19 +23,18 @@ void flash (void)
       }
 
 int main(void)
-
-// This worked finally. Next add in OR language to set bits and while loop to wait for transmit to be done. Then add in Rx capability
-// Finally transmit A-Z to Rapi
-
-
 {
+	RCC_CR=0x10000; // HSE on.
+					// Use HSE crystal clock source in SYSCLK mux.
 
-// Set up power to SPI and allocate pins PA4-7
+	//Set the Clock config register to output SYSCLK clock at MCO pin 29 and select HSE clock source
+	RCC_CFGR=0x4000001;
+
+// Set up power to SPI1 and allocate pins PA4-7
 // SPI1 is on APB2, SPI2 is on APB1
 // Also enable GPIO port C for LED
 
 	RCC_APB2ENR= 0x101D; // Start clock to SPI1, GPIO port C (for LED), GPIO port B (for SPI2), GPIO port A (for SPI) and AFIO
-	RCC_APB1ENR = 0x4000; // Start clock to SPI2
 
 // Set up GPIO for PC13 to drive LED
 	GPIOC_CRH = 0x200000; 	// PC13 output push pull
@@ -45,66 +46,36 @@ int main(void)
 // PA6: MISO. Input. Pull up-down.
 // PA5: SCLK. AF output. 2Mhz
 // PA4. CS. GP Output. 2Mhz
-  GPIOA_CRL = 0xB8B30000;
-  //GPIOA_ODR=0x40; // Set PA6 to pull-up input
-  GPIOA_ODR=0x0; // See what happens to pull up down
 
-  // Set up pins for SPI2 on GPIOB_CRL
-  // Pins PB12-15 for SPI2
-  // PA7: MOSI. AF output. 50Mhz.
-  // PA6: MISO. Input. Pull up-down.
-  // PA5: SCLK. AF output. 50Mhz
-  // PA4. CS. GP Output. 50Mhz
+	GPIOA_CRL = 0xB4B30000;
+	GPIOA_ODR=0x40; // Set PA6 to pull-up input for MISO
 
-
-    GPIOB_CRH = 0x8B480000;
-    GPIOB_ODR=0x9000; // Set PA6 to pull-up input
-	//  GPIOB_BSRR=0x1000; // set initial CS state to high
-
-
-// Now set up SPI1
-// SPI_CR1: SSM&SSI set to allow software control of chip select NSS, LSBFirst, SPE enable, Fclk/32 baud rate (250KHz), MASTER, CPOL, CPHA
+// Set up SPI1
+// SPI_CR1: SSM&SSI set to allow software control of chip select NSS, MSB First, SPE enable, Fclk/32 baud rate (250KHz), MASTER, CPOL, CPHA
   	  SPI1_CR1 = 0x364;
 
-  	// Now set up SPI2
-  	// SPI2_CR1: SSM&SSI set to allow software control of chip select NSS, LSBFirst, SPE enable, Fclk/32 baud rate (250KHz), SLAVE, CPOL, CPHA
-  	SPI2_CR1 = 0x360;
-
-
-  	  char dataout = 'A';
-  	  char datain=0;
-  	  int i=0;
-
+  	  char dataout = 0xD0; // ID register command for BME280 external pressure sensor
+  	  char datain[4];
 
   	  while (1) {
 
-	  // now cs to low
+	  // Set cs to low (enable)
 	  GPIOA_BSRR = 0x100000;
-	  //GPIOB_BSRR = 0x10000000; // CS low
 
 	  while (!(SPI1_SR & 0x2)); // wait for TX buffer to clear
 	  SPI1_DR = dataout;
 
-	  while ((SPI1_SR & 0x80)); // wait while BSY
-	  wait();
+	  while (!(SPI1_SR & 0x2)); // wait for TX buffer to clear
+	  SPI1_DR = 0; // Send dummy packet
 
+	  while (!(SPI1_SR & 0x2)); // wait for Tx buffer to clear
+	  while (!(SPI1_SR & 0x1)); // wait while RX empty RXNE
 
-	  //while (!(SPI2_SR & 0x1)); // SPI2 RXNE
-	  //datain = SPI2_DR;
+	  datain[0] = SPI1_DR;
 
-	  //while ((SPI1_SR & 0x80)); // wait while BSY
+	  while ((SPI1_SR & 0x80)); // wait while BUSY is still set
 
 	  GPIOA_BSRR=0x10; // set CS hi
-
-
-	  //GPIOB_BSRR=0x1000; // CS hi
-
-
-	  dataout++;
-	  if (dataout=='Z')
-		  dataout='A';
-
-	  flash();
 
   	  }
 
